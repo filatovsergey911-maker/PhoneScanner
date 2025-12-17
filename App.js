@@ -5,31 +5,34 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  Platform,
-  Modal,
   ActivityIndicator,
   useColorScheme,
   Linking,
   Animated,
-  StyleSheet
+  StyleSheet,
+  Modal,
+  Dimensions
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { APP_DATABASE } from './appData';
-import { styles as appStyles } from './styles';
+import { styles } from './styles';
 import { getHistory, saveToHistory, clearHistory } from './historyService';
 
-// Компонент анимации сканирования - УПРОЩЁННАЯ РАБОЧАЯ ВЕРСИЯ
-const ScanAnimation = ({ isActive }) => {
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+
+// Компонент анимации сканирования
+const ScanAnimation = ({ isActive, isDarkMode }) => {
   const scanAnim = useRef(new Animated.Value(0)).current;
-  const glowAnim = useRef(new Animated.Value(0)).current;
   
   useEffect(() => {
+    let animation;
+    
     if (isActive) {
-      // Анимация движения сверху вниз (от 0% до 100% высоты рамки)
-      const lineAnimation = Animated.loop(
+      animation = Animated.loop(
         Animated.sequence([
           Animated.timing(scanAnim, {
             toValue: 1,
@@ -38,222 +41,146 @@ const ScanAnimation = ({ isActive }) => {
           }),
           Animated.timing(scanAnim, {
             toValue: 0,
-            duration: 2000,
+            duration: 0,
             useNativeDriver: true,
           }),
         ])
       );
       
-      // Анимация пульсации свечения
-      const glowAnimation = Animated.loop(
-        Animated.sequence([
-          Animated.timing(glowAnim, {
-            toValue: 1,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(glowAnim, {
-            toValue: 0.3,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-      
-      lineAnimation.start();
-      glowAnimation.start();
-      
-      return () => {
-        lineAnimation.stop();
-        glowAnimation.stop();
-        scanAnim.setValue(0);
-        glowAnim.setValue(0);
-      };
+      animation.start();
+    } else {
+      scanAnim.setValue(0);
     }
+    
+    return () => {
+      if (animation) {
+        animation.stop();
+      }
+    };
   }, [isActive]);
 
   if (!isActive) return null;
 
-  // Позиция линии от верха рамки (0% - вверху, 100% - внизу)
   const translateY = scanAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ['0%', '100%'], // Двигаемся по всей высоте рамки
-  });
-
-  // Яркость свечения
-  const glowOpacity = glowAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.3, 1],
-  });
-
-  // Прозрачность хвостов (зависит от позиции)
-  const tailOpacity = scanAnim.interpolate({
-    inputRange: [0, 0.5, 1],
-    outputRange: [0.2, 0.8, 0.2],
+    outputRange: [0, screenHeight * 0.32 * 0.9],
   });
 
   return (
-    <>
-      {/* Контейнер который движется ВМЕСТЕ со всей линией и хвостами */}
+    <View style={localStyles.animationContainer}>
       <Animated.View
         style={[
-          scanAnimationStyles.scanLineContainer,
+          localStyles.scanLine,
           {
             transform: [{ translateY }],
+            backgroundColor: isDarkMode ? '#007AFF' : '#0056CC',
           },
         ]}
-      >
-        {/* Верхний хвост 1 (самый дальний) */}
-        <View style={[
-          scanAnimationStyles.tail,
-          scanAnimationStyles.tailTop1,
-          { opacity: 0.3 }
-        ]} />
-        
-        {/* Верхний хвост 2 */}
-        <View style={[
-          scanAnimationStyles.tail,
-          scanAnimationStyles.tailTop2,
-          { opacity: 0.5 }
-        ]} />
-        
-        {/* Верхний хвост 3 (ближайший к линии) */}
-        <View style={[
-          scanAnimationStyles.tail,
-          scanAnimationStyles.tailTop3,
-          { opacity: 0.7 }
-        ]} />
-        
-        {/* Основная линия - самая яркая */}
-        <Animated.View
-          style={[
-            scanAnimationStyles.mainLine,
-            { opacity: glowOpacity }
-          ]}
-        />
-        
-        {/* Нижний хвост 1 (ближайший к линии) */}
-        <View style={[
-          scanAnimationStyles.tail,
-          scanAnimationStyles.tailBottom1,
-          { opacity: 0.7 }
-        ]} />
-        
-        {/* Нижний хвост 2 */}
-        <View style={[
-          scanAnimationStyles.tail,
-          scanAnimationStyles.tailBottom2,
-          { opacity: 0.5 }
-        ]} />
-        
-        {/* Нижний хвост 3 (самый дальний) */}
-        <View style={[
-          scanAnimationStyles.tail,
-          scanAnimationStyles.tailBottom3,
-          { opacity: 0.3 }
-        ]} />
-      </Animated.View>
+      />
       
-      {/* Статичные мерцающие точки (не привязаны к линии) */}
-      <View style={scanAnimationStyles.pixelsContainer}>
-        {[...Array(8)].map((_, index) => (
-          <Animated.View
-            key={index}
-            style={[
-              scanAnimationStyles.pixel,
-              {
-                left: `${15 + index * 10}%`,
-                top: `${25 + Math.random() * 50}%`,
-                opacity: glowAnim.interpolate({
-                  inputRange: [0, 0.5, 1],
-                  outputRange: [0.1, 0.7, 0.1],
-                }),
-              },
-            ]}
-          />
-        ))}
-      </View>
-    </>
+      <Animated.View
+        style={[
+          localStyles.glowEffect,
+          {
+            transform: [{ translateY }],
+            backgroundColor: isDarkMode ? '#4CD964' : '#34C759',
+            opacity: scanAnim.interpolate({
+              inputRange: [0, 0.5, 1],
+              outputRange: [0.1, 0.8, 0.1],
+            }),
+          },
+        ]}
+      />
+      
+      <Animated.View
+        style={[
+          localStyles.secondaryLine,
+          {
+            transform: [{ translateY: Animated.add(translateY, 15) }],
+            backgroundColor: isDarkMode ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.4)',
+            opacity: scanAnim.interpolate({
+              inputRange: [0, 0.3, 0.7, 1],
+              outputRange: [0, 0.5, 0.5, 0],
+            }),
+          },
+        ]}
+      />
+    </View>
   );
 };
 
-const scanAnimationStyles = StyleSheet.create({
-  // Контейнер для ВСЕХ элементов линии (движется как единое целое)
-  scanLineContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 24, // Общая высота линии со всеми хвостами
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  
-  // Основная яркая линия
-  mainLine: {
-    width: '100%',
-    height: 3,
-    backgroundColor: '#007AFF',
-    shadowColor: '#007AFF',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 12,
-    elevation: 12,
-  },
-  
-  // Общие стили для хвостов
-  tail: {
-    position: 'absolute',
-    width: '100%',
-    backgroundColor: '#4CD964',
-  },
-  
-  // Верхние хвосты (над основной линией)
-  tailTop1: {
-    height: 2,
-    top: -12, // Самый дальний от линии
-  },
-  tailTop2: {
-    height: 3,
-    top: -8,
-  },
-  tailTop3: {
-    height: 4,
-    top: -4, // Ближайший к линии
-  },
-  
-  // Нижние хвосты (под основной линией)
-  tailBottom1: {
-    height: 4,
-    bottom: -4, // Ближайший к линии
-  },
-  tailBottom2: {
-    height: 3,
-    bottom: -8,
-  },
-  tailBottom3: {
-    height: 2,
-    bottom: -12, // Самый дальний от линии
-  },
-  
-  // Мерцающие пиксели
-  pixelsContainer: {
+const localStyles = StyleSheet.create({
+  animationContainer: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    bottom: 0,
+    height: screenHeight * 0.32 * 0.9,
   },
-  pixel: {
+  scanLine: {
     position: 'absolute',
-    width: 3,
-    height: 3,
-    backgroundColor: '#00D4FF',
-    borderRadius: 1.5,
-    shadowColor: '#00D4FF',
+    left: 10,
+    right: 10,
+    height: 4,
+    borderRadius: 2,
+    shadowColor: '#007AFF',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.8,
-    shadowRadius: 3,
+    shadowRadius: 10,
+    elevation: 15,
+    zIndex: 10,
   },
+  glowEffect: {
+    position: 'absolute',
+    left: 5,
+    right: 5,
+    height: 10,
+    borderRadius: 5,
+    zIndex: 9,
+  },
+  secondaryLine: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    height: 2,
+    borderRadius: 1,
+    zIndex: 8,
+  },
+  // Новые стили для статуса внутри камеры
+  scanStatusOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    zIndex: 20,
+  },
+  scanStatusOverlayText: {
+    color: 'white',
+    fontSize: 14,
+    fontFamily: 'System',
+    fontWeight: '500',
+    marginTop: 5,
+  },
+  detectedCountOverlay: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 12,
+    fontFamily: 'System',
+    marginTop: 2,
+  },
+  scanHintAbsolute: {
+  position: 'absolute',
+  bottom: -55, // Отступ от низа камеры
+  left: 0,
+  right: 0,
+  alignItems: 'center',
+  zIndex: 15,
+},
 });
 
 // Основной компонент приложения
@@ -264,23 +191,54 @@ export default function App() {
   const [resultsVisible, setResultsVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [historyVisible, setHistoryVisible] = useState(false);
-  const [flash, setFlash] = useState('off');
-  const [autoSave, setAutoSave] = useState(true);
+  const [autoSave, setAutoSave] = useState(false);
+  const [useDarkTheme, setUseDarkTheme] = useState(false);
   const [scanHistory, setScanHistory] = useState([]);
+  const [isCameraReady, setIsCameraReady] = useState(false);
+  
   const cameraRef = useRef(null);
   const scanInterval = useRef(null);
   const isLongPress = useRef(false);
-  
-  const colorScheme = useColorScheme();
-  const isDarkMode = colorScheme === 'dark';
+  const longPressTimeout = useRef(null);
+
+  const systemColorScheme = useColorScheme();
+  const isDarkMode = useDarkTheme || systemColorScheme === 'dark';
 
   useEffect(() => {
     loadHistory();
+    loadThemePreference();
+    return () => {
+      if (longPressTimeout.current) {
+        clearTimeout(longPressTimeout.current);
+      }
+      if (scanInterval.current) {
+        clearInterval(scanInterval.current);
+      }
+    };
   }, []);
 
   const loadHistory = async () => {
     const history = await getHistory();
     setScanHistory(history);
+  };
+
+  const loadThemePreference = async () => {
+    try {
+      const savedTheme = await AsyncStorage.getItem('@theme_preference');
+      if (savedTheme !== null) {
+        setUseDarkTheme(savedTheme === 'dark');
+      }
+    } catch (error) {
+      console.log('Ошибка загрузки темы:', error);
+    }
+  };
+
+  const saveThemePreference = async (isDark) => {
+    try {
+      await AsyncStorage.setItem('@theme_preference', isDark ? 'dark' : 'light');
+    } catch (error) {
+      console.log('Ошибка сохранения темы:', error);
+    }
   };
 
   const simulateAppRecognition = () => {
@@ -290,7 +248,7 @@ export default function App() {
   };
 
   const startScanning = () => {
-    if (!isScanning) {
+    if (!isScanning && isCameraReady) {
       setIsScanning(true);
       setDetectedApps([]);
       isLongPress.current = false;
@@ -328,22 +286,52 @@ export default function App() {
   };
 
   const takePhotoAndAnalyze = async () => {
-    if (cameraRef.current) {
-      try {
-        setIsScanning(true);
-        isLongPress.current = true;
-        
-        setTimeout(() => {
-          const apps = simulateAppRecognition();
-          setDetectedApps(apps);
-          setIsScanning(false);
-          saveScanResult();
-        }, 1500);
-        
-      } catch (error) {
-        Alert.alert('Ошибка', 'Не удалось сделать фото');
+    if (!cameraRef.current || !isCameraReady) {
+      console.log('Камера не готова');
+      return;
+    }
+
+    try {
+      setIsScanning(true);
+      isLongPress.current = true;
+      
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.7,
+        base64: false,
+        skipProcessing: true,
+      });
+      
+      setTimeout(() => {
+        const apps = simulateAppRecognition();
+        setDetectedApps(apps);
         setIsScanning(false);
         isLongPress.current = false;
+        setResultsVisible(true);
+        saveScanResult();
+      }, 1500);
+      
+    } catch (error) {
+      console.log('Ошибка при съёмке:', error);
+      setIsScanning(false);
+      isLongPress.current = false;
+    }
+  };
+
+  const handlePressIn = () => {
+    if (!isScanning && isCameraReady) {
+      longPressTimeout.current = setTimeout(() => {
+        takePhotoAndAnalyze();
+      }, 800);
+    }
+  };
+
+  const handlePressOut = () => {
+    if (longPressTimeout.current) {
+      clearTimeout(longPressTimeout.current);
+      longPressTimeout.current = null;
+      
+      if (!isScanning && !isLongPress.current && isCameraReady) {
+        startScanning();
       }
     }
   };
@@ -351,14 +339,6 @@ export default function App() {
   const handlePress = () => {
     if (isScanning) {
       stopScanning();
-    } else {
-      startScanning();
-    }
-  };
-
-  const handleLongPress = () => {
-    if (!isScanning) {
-      takePhotoAndAnalyze();
     }
   };
 
@@ -381,7 +361,7 @@ export default function App() {
         }, 1500);
       }
     } catch (error) {
-      Alert.alert('Ошибка', 'Не удалось выбрать изображение');
+      console.log('Ошибка выбора фото:', error);
       setIsScanning(false);
     }
   };
@@ -394,7 +374,7 @@ export default function App() {
       deviceName: `Скан от ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`,
       date: new Date().toLocaleString(),
       appsCount: detectedApps.length,
-      apps: detectedApps,
+      apps: [...detectedApps],
     };
 
     if (autoSave) {
@@ -423,150 +403,187 @@ export default function App() {
           onPress: async () => {
             const cleared = await clearHistory();
             setScanHistory(cleared);
+            
+            // ЗАКРЫТЬ ОКНО ИСТОРИИ ПОСЛЕ ОЧИСТКИ
+            if (historyVisible) {
+              setHistoryVisible(false);
+            }
           }
         }
       ]
     );
   };
 
+  const toggleTheme = () => {
+    const newTheme = !useDarkTheme;
+    setUseDarkTheme(newTheme);
+    saveThemePreference(newTheme);
+  };
+
+  const handleCameraReady = () => {
+    setIsCameraReady(true);
+  };
+
   if (!permission) {
     return (
-      <View style={appStyles.centered}>
-        <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={appStyles.loadingText}>Загрузка...</Text>
+      <View style={[styles.centered, { backgroundColor: isDarkMode ? '#0a0a0a' : '#f5f5f7' }]}>
+        <ActivityIndicator size="large" color={isDarkMode ? "#007AFF" : "#0056CC"} />
+        <Text style={[styles.loadingText, { color: isDarkMode ? '#666' : '#888' }]}>Загрузка...</Text>
       </View>
     );
   }
 
   if (!permission.granted) {
     return (
-      <View style={appStyles.centered}>
-        <MaterialIcons name="camera-alt" size={80} color="#007AFF" />
-        <Text style={appStyles.message}>Доступ к камере</Text>
-        <Text style={appStyles.subMessage}>
+      <View style={[styles.centered, { backgroundColor: isDarkMode ? '#0a0a0a' : '#f5f5f7' }]}>
+        <MaterialIcons name="camera-alt" size={80} color={isDarkMode ? "#007AFF" : "#0056CC"} />
+        <Text style={[styles.message, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>Доступ к камере</Text>
+        <Text style={[styles.subMessage, { color: isDarkMode ? '#aaa' : '#666' }]}>
           Для сканирования экрана другого телефона нужен доступ к камере
         </Text>
-        <TouchableOpacity style={appStyles.primaryButton} onPress={requestPermission}>
-          <Text style={appStyles.buttonText}>Разрешить доступ к камере</Text>
+        <TouchableOpacity 
+          style={[styles.primaryButton, { backgroundColor: isDarkMode ? "#007AFF" : "#0056CC" }]} 
+          onPress={requestPermission}
+        >
+          <Text style={styles.buttonText}>Разрешить доступ к камере</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <View style={appStyles.container}>
+    <View style={[styles.container, { backgroundColor: isDarkMode ? '#0a0a0a' : '#f5f5f7' }]}>
       <StatusBar style={isDarkMode ? "light" : "dark"} />
       
-      <View style={appStyles.header}>
+      <View style={[styles.header, { backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff' }]}>
         <View>
-          <Text style={appStyles.headerTitle}>Phone Scanner</Text>
-          <Text style={appStyles.headerSubtitle}>Сканирование приложений на другом устройстве</Text>
+          <Text style={[styles.headerTitle, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
+            Phone Scanner
+          </Text>
+          <Text style={[styles.headerSubtitle, { color: isDarkMode ? '#aaa' : '#666' }]}>
+            Сканирование приложений на другом устройстве
+          </Text>
         </View>
         
         <TouchableOpacity onPress={() => setSettingsVisible(true)}>
-          <Ionicons name="settings-outline" size={24} color="#007AFF" />
+          <Ionicons name="settings-outline" size={24} color={isDarkMode ? "#007AFF" : "#0056CC"} />
         </TouchableOpacity>
       </View>
 
-      <View style={appStyles.content}>
-        <View style={appStyles.cameraSection}>
-          <View style={appStyles.cameraWrapper}>
+      <View style={styles.content}>
+        <View style={styles.cameraSection}>
+          <View style={[styles.cameraWrapper, { backgroundColor: isDarkMode ? '#000' : '#1a1a1a' }]}>
             <CameraView
               ref={cameraRef}
-              style={appStyles.camera}
+              style={styles.camera}
               facing="back"
-              flash={flash}
+              onCameraReady={handleCameraReady}
             />
             
-            <View style={appStyles.cameraOverlay}>
-              <View style={appStyles.scanFrame}>
-                <View style={[appStyles.corner, appStyles.topLeft]} />
-                <View style={[appStyles.corner, appStyles.topRight]} />
-                <View style={[appStyles.corner, appStyles.bottomLeft]} />
-                <View style={[appStyles.corner, appStyles.bottomRight]} />
+            <View style={styles.cameraOverlay}>
+              {/* Статус сканирования ВНУТРИ камеры */}
+              {isScanning && (
+                <View style={localStyles.scanStatusOverlay}>
+                  <ActivityIndicator size="small" color="white" />
+                  <Text style={localStyles.scanStatusOverlayText}>
+                    {isLongPress.current ? 'Анализ фото...' : 'Сканирование...'}
+                  </Text>
+                  {detectedApps.length > 0 && (
+                    <Text style={localStyles.detectedCountOverlay}>
+                      Найдено: {detectedApps.length} приложений
+                    </Text>
+                  )}
+                </View>
+              )}
+              
+              <View style={styles.scanFrame}>
+                <View style={[
+                  styles.corner, 
+                  styles.topLeft, 
+                  { borderColor: isDarkMode ? '#007AFF' : '#0056CC' }
+                ]} />
+                <View style={[
+                  styles.corner, 
+                  styles.topRight, 
+                  { borderColor: isDarkMode ? '#007AFF' : '#0056CC' }
+                ]} />
+                <View style={[
+                  styles.corner, 
+                  styles.bottomLeft, 
+                  { borderColor: isDarkMode ? '#007AFF' : '#0056CC' }
+                ]} />
+                <View style={[
+                  styles.corner, 
+                  styles.bottomRight, 
+                  { borderColor: isDarkMode ? '#007AFF' : '#0056CC' }
+                ]} />
                 
-                <ScanAnimation isActive={isScanning} />
+                <ScanAnimation isActive={isScanning} isDarkMode={isDarkMode} />
               </View>
-              <Text style={appStyles.scanHint}>
-                Наведите на экран другого телефона
-              </Text>
+              
+              <View style={localStyles.scanHintAbsolute}>
+                <Text style={[styles.scanHint, { 
+                  color: 'white',
+                  backgroundColor: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.6)'
+                }]}>
+                  Наведите на экран другого телефона
+                </Text>
+              </View>
             </View>
           </View>
 
-          {isScanning && (
-            <View style={appStyles.scanStatus}>
-              <ActivityIndicator size="small" color="#4CD964" />
-              <Text style={appStyles.scanStatusText}>
-                {isLongPress.current ? 'Обработка фото...' : 'Сканирование...'}
-              </Text>
-              {detectedApps.length > 0 && (
-                <Text style={appStyles.detectedCount}>
-                  Найдено: {detectedApps.length} приложений
-                </Text>
-              )}
-            </View>
-          )}
+          {/* УДАЛЕН блок scanStatus здесь - теперь он внутри cameraOverlay */}
 
-          <View style={appStyles.controls}>
+          <View style={styles.controls}>
             <TouchableOpacity 
-              style={appStyles.controlButton}
-              onPress={async () => {
-                try {
-                  const newFlash = flash === 'off' ? 'on' : 'off';
-                  setFlash(newFlash);
-                } catch (error) {
-                  console.log('Ошибка вспышки:', error);
-                }
-              }}
+              style={[styles.controlButton, { backgroundColor: isDarkMode ? '#333' : '#e5e5e7' }]}
+              onPress={pickImageFromGallery}
             >
-              <Ionicons 
-                name={flash === 'off' ? "flash-off" : "flash"} 
-                size={24} 
-                color={flash === 'off' ? "white" : "#FFD700"} 
-              />
+              <Ionicons name="images" size={24} color={isDarkMode ? "white" : "#1d1d1f"} />
             </TouchableOpacity>
             
-            <View style={appStyles.scanButtonContainer}>
+            <View style={styles.scanButtonContainer}>
               <TouchableOpacity
-                style={[appStyles.scanButton, isScanning && appStyles.scanButtonActive]}
+                style={[
+                  styles.scanButton, 
+                  { backgroundColor: isDarkMode ? '#007AFF' : '#0056CC' },
+                  isScanning && { backgroundColor: isDarkMode ? '#ff3b30' : '#d70015' },
+                  !isCameraReady && styles.disabledButton
+                ]}
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
                 onPress={handlePress}
-                onLongPress={handleLongPress}
-                delayLongPress={800}
                 activeOpacity={0.7}
+                disabled={!isCameraReady}
               >
-                <View style={appStyles.scanButtonContent}>
-                  {isScanning ? (
-                    <Ionicons name="stop" size={30} color="white" />
-                  ) : (
-                    <Ionicons name="scan" size={30} color="white" />
-                  )}
-                  <Text style={appStyles.scanButtonText}>
+                <View style={styles.scanButtonContent}>
+                  <Text style={styles.scanButtonText}>
                     {isScanning ? 'ОСТАНОВИТЬ СКАНИРОВАНИЕ' : 'НАЧАТЬ СКАНИРОВАНИЕ'}
                   </Text>
-                  <Text style={appStyles.scanButtonHint}>
+                  <Text style={[styles.scanButtonHint, { 
+                    color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.8)' 
+                  }]}>
                     (удерживайте для фото)
                   </Text>
                 </View>
               </TouchableOpacity>
             </View>
             
-            <TouchableOpacity 
-              style={appStyles.controlButton}
-              onPress={pickImageFromGallery}
-            >
-              <Ionicons name="images" size={24} color="white" />
-            </TouchableOpacity>
+            <View style={[styles.controlButton, { opacity: 0 }]} />
           </View>
 
+          {/* Кнопка истории показывается ТОЛЬКО если есть записи */}
           {scanHistory.length > 0 && (
-            <View style={appStyles.historyButtonContainer}>
+            <View style={styles.historyButtonContainer}>
               <TouchableOpacity 
-                style={appStyles.historyButton}
+                style={[styles.historyButton, { backgroundColor: isDarkMode ? '#333' : '#e5e5e7' }]}
                 onPress={() => setHistoryVisible(true)}
               >
-                <View style={appStyles.historyButtonContent}>
-                  <Ionicons name="time-outline" size={20} color="#007AFF" />
-                  <Text style={appStyles.historyButtonText}>
+                <View style={styles.historyButtonContent}>
+                  <Ionicons name="time-outline" size={20} color={isDarkMode ? "#007AFF" : "#0056CC"} />
+                  <Text style={[styles.historyButtonText, { 
+                    color: isDarkMode ? "#007AFF" : "#0056CC" 
+                  }]}>
                     История сканирований ({scanHistory.length})
                   </Text>
                 </View>
@@ -576,215 +593,250 @@ export default function App() {
         </View>
       </View>
 
+      {/* Модальное окно результатов */}
       <Modal
         animationType="slide"
         transparent={true}
         visible={resultsVisible}
         onRequestClose={() => {
           setResultsVisible(false);
-          setDetectedApps([]);
           isLongPress.current = false;
         }}
       >
-        <View style={appStyles.modalContainer}>
-          <View style={appStyles.modalContent}>
-            <View style={appStyles.modalHeader}>
-              <Text style={appStyles.modalTitle}>Результаты сканирования</Text>
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalContent, { backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
+                Результаты сканирования
+              </Text>
               <TouchableOpacity onPress={() => {
                 setResultsVisible(false);
-                setDetectedApps([]);
                 isLongPress.current = false;
               }}>
-                <Ionicons name="close" size={24} color="#666" />
+                <Ionicons name="close" size={24} color={isDarkMode ? "#666" : "#8e8e93"} />
               </TouchableOpacity>
             </View>
             
-            <ScrollView style={appStyles.modalScroll} showsVerticalScrollIndicator={false}>
-              <View style={appStyles.resultsSummary}>
-                <View style={appStyles.summaryText}>
-                  <Text style={appStyles.summaryLabel}>Найдено приложений:</Text>
-                  <Text style={appStyles.summaryValue}>
+            <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+              <View style={[styles.resultsSummary, { backgroundColor: isDarkMode ? '#2a2a2a' : '#f2f2f7' }]}>
+                <View style={styles.summaryText}>
+                  <Text style={[styles.summaryLabel, { color: isDarkMode ? '#aaa' : '#666' }]}>
+                    Найдено приложений:
+                  </Text>
+                  <Text style={[styles.summaryValue, { color: isDarkMode ? '#4CD964' : '#34C759' }]}>
                     {detectedApps.length}
                   </Text>
                 </View>
               </View>
               
-              <Text style={appStyles.sectionTitle}>Обнаруженные приложения:</Text>
-              <View style={appStyles.appsList}>
+              <Text style={[styles.sectionTitle, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
+                Обнаруженные приложения:
+              </Text>
+              <View style={styles.appsList}>
                 {detectedApps.map((app, index) => (
                   <TouchableOpacity 
                     key={index} 
-                    style={appStyles.appListItem}
+                    style={[styles.appListItem, { backgroundColor: isDarkMode ? '#2a2a2a' : '#f2f2f7' }]}
                     onPress={() => openInStore(app)}
                   >
-                    <View style={appStyles.appIconContainer}>
-                      <FontAwesome5 name={app.icon} size={24} color="#007AFF" />
+                    <View style={[
+                      styles.appIconContainer, 
+                      { backgroundColor: isDarkMode ? '#333' : '#e5e5e7' }
+                    ]}>
+                      <FontAwesome5 name={app.icon} size={24} color={isDarkMode ? "#007AFF" : "#0056CC"} />
                     </View>
-                    <View style={appStyles.appInfo}>
-                      <Text style={appStyles.appName}>{app.name}</Text>
-                      <Text style={appStyles.appType}>{app.type}</Text>
+                    <View style={styles.appInfo}>
+                      <Text style={[styles.appName, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
+                        {app.name}
+                      </Text>
+                      <Text style={[styles.appType, { color: isDarkMode ? '#aaa' : '#666' }]}>
+                        {app.type}
+                      </Text>
                     </View>
                     <TouchableOpacity 
-                      style={appStyles.downloadButton}
+                      style={[styles.downloadButton, { backgroundColor: isDarkMode ? '#007AFF' : '#0056CC' }]}
                       onPress={() => openInStore(app)}
                     >
-                      <Text style={appStyles.downloadButtonText}>Скачать</Text>
+                      <Text style={styles.downloadButtonText}>Скачать</Text>
                     </TouchableOpacity>
                   </TouchableOpacity>
                 ))}
               </View>
             </ScrollView>
             
-            <View style={appStyles.modalButtons}>
+            <View style={styles.modalButtons}>
               <TouchableOpacity 
-                style={[appStyles.modalButton, appStyles.closeButton]}
+                style={[styles.modalButton, { backgroundColor: isDarkMode ? '#007AFF' : '#0056CC' }]}
                 onPress={() => {
                   setResultsVisible(false);
-                  setDetectedApps([]);
                   isLongPress.current = false;
                 }}
               >
-                <Text style={appStyles.closeButtonText}>Закрыть</Text>
+                <Text style={styles.closeButtonText}>Закрыть</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
+      {/* Модальное окно истории */}
       <Modal
         animationType="slide"
         transparent={true}
         visible={historyVisible}
         onRequestClose={() => setHistoryVisible(false)}
       >
-        <View style={appStyles.modalContainer}>
-          <View style={appStyles.historyModalContent}>
-            <Text style={appStyles.historyTitle}>История сканирований</Text>
+        <View style={styles.modalContainer}>
+          <View style={[styles.historyModalContent, { backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff' }]}>
+            <Text style={[styles.historyTitle, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
+              История сканирований
+            </Text>
             
             {scanHistory.length === 0 ? (
-              <View style={appStyles.historyEmpty}>
-                <Ionicons name="time-outline" size={60} color="#666" />
-                <Text style={appStyles.historyEmptyText}>История пуста</Text>
+              <View style={styles.historyEmpty}>
+                <Ionicons name="time-outline" size={60} color={isDarkMode ? "#666" : "#8e8e93"} />
+                <Text style={[styles.historyEmptyText, { color: isDarkMode ? '#aaa' : '#666' }]}>
+                  История пуста
+                </Text>
               </View>
             ) : (
-              <ScrollView style={appStyles.modalScroll}>
+              <ScrollView style={styles.modalScroll}>
                 {scanHistory.map((scan) => (
-                  <View key={scan.id} style={appStyles.historyItem}>
-                    <View style={appStyles.historyItemHeader}>
-                      <Text style={appStyles.historyDeviceName}>{scan.deviceName}</Text>
-                      <Text style={appStyles.historyDate}>{scan.date}</Text>
+                  <View key={scan.id} style={[styles.historyItem, { backgroundColor: isDarkMode ? '#2a2a2a' : '#f2f2f7' }]}>
+                    <View style={styles.historyItemHeader}>
+                      <Text style={[styles.historyDeviceName, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
+                        {scan.deviceName}
+                      </Text>
+                      <Text style={[styles.historyDate, { color: isDarkMode ? '#aaa' : '#666' }]}>
+                        {scan.date}
+                      </Text>
                     </View>
                     
-                    <Text style={appStyles.detectedCount}>
+                    <Text style={[styles.detectedCount, { color: isDarkMode ? '#aaa' : '#666' }]}>
                       Найдено приложений: {scan.appsCount}
                     </Text>
                     
-                    <View style={appStyles.historyApps}>
+                    <View style={styles.historyApps}>
                       {scan.apps.slice(0, 5).map((app, index) => (
-                        <View key={index} style={appStyles.historyAppBadge}>
+                        <View key={index} style={[styles.historyAppBadge, { backgroundColor: isDarkMode ? '#333' : '#e5e5e7' }]}>
                           <FontAwesome5 
                             name={app.icon} 
                             size={12} 
-                            color="#007AFF" 
-                            style={appStyles.historyAppIcon}
+                            color={isDarkMode ? "#007AFF" : "#0056CC"} 
+                            style={styles.historyAppIcon}
                           />
-                          <Text style={appStyles.historyAppName}>{app.name}</Text>
+                          <Text style={[styles.historyAppName, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
+                            {app.name}
+                          </Text>
                         </View>
                       ))}
                       {scan.apps.length > 5 && (
-                        <View style={appStyles.historyAppBadge}>
-                          <Text style={appStyles.historyAppName}>+{scan.apps.length - 5}</Text>
+                        <View style={[styles.historyAppBadge, { backgroundColor: isDarkMode ? '#333' : '#e5e5e7' }]}>
+                          <Text style={[styles.historyAppName, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
+                            +{scan.apps.length - 5}
+                          </Text>
                         </View>
                       )}
                     </View>
                     
                     <TouchableOpacity 
-                      style={[appStyles.modalButton, appStyles.closeButton, { marginTop: 10 }]}
+                      style={[styles.modalButton, { backgroundColor: isDarkMode ? '#007AFF' : '#0056CC', marginTop: 10 }]}
                       onPress={() => {
-                        setDetectedApps(scan.apps);
+                        setDetectedApps([...scan.apps]);
                         setHistoryVisible(false);
                         setResultsVisible(true);
                       }}
                     >
-                      <Text style={appStyles.closeButtonText}>Посмотреть</Text>
+                      <Text style={styles.closeButtonText}>Посмотреть</Text>
                     </TouchableOpacity>
                   </View>
                 ))}
                 
                 <TouchableOpacity 
-                  style={appStyles.clearHistoryButton}
+                  style={[styles.clearHistoryButton, { backgroundColor: isDarkMode ? '#ff3b30' : '#d70015' }]}
                   onPress={handleClearHistory}
                 >
-                  <Text style={appStyles.clearHistoryText}>Очистить историю</Text>
+                  <Text style={styles.clearHistoryText}>Очистить историю</Text>
                 </TouchableOpacity>
               </ScrollView>
             )}
             
             <TouchableOpacity 
-              style={[appStyles.modalButton, appStyles.closeButton, { marginTop: 20 }]}
+              style={[styles.modalButton, { backgroundColor: isDarkMode ? '#007AFF' : '#0056CC', marginTop: 20 }]}
               onPress={() => setHistoryVisible(false)}
             >
-              <Text style={appStyles.closeButtonText}>Закрыть</Text>
+              <Text style={styles.closeButtonText}>Закрыть</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
+      {/* Модальное окно настроек */}
       <Modal
         animationType="slide"
         transparent={true}
         visible={settingsVisible}
         onRequestClose={() => setSettingsVisible(false)}
       >
-        <View style={appStyles.modalContainer}>
-          <View style={appStyles.modalContent}>
-            <View style={appStyles.modalHeader}>
-              <Text style={appStyles.modalTitle}>Настройки</Text>
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalContent, { backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
+                Настройки
+              </Text>
               <TouchableOpacity onPress={() => setSettingsVisible(false)}>
-                <Ionicons name="close" size={24} color="#666" />
+                <Ionicons name="close" size={24} color={isDarkMode ? "#666" : "#8e8e93"} />
               </TouchableOpacity>
             </View>
             
-            <ScrollView style={appStyles.modalScroll}>
-              <View style={appStyles.settingItem}>
-                <View style={appStyles.settingInfo}>
-                  <Ionicons name="flash" size={24} color="#007AFF" style={appStyles.settingIcon} />
+            <ScrollView style={styles.modalScroll}>
+              <View style={styles.settingItem}>
+                <View style={styles.settingInfo}>
+                  <Ionicons name="moon" size={24} color={isDarkMode ? "#007AFF" : "#0056CC"} style={styles.settingIcon} />
                   <View>
-                    <Text style={appStyles.settingTitle}>Вспышка</Text>
-                    <Text style={appStyles.settingDescription}>Включить фонарик камеры</Text>
+                    <Text style={[styles.settingTitle, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
+                      Тёмная тема
+                    </Text>
+                    <Text style={[styles.settingDescription, { color: isDarkMode ? '#aaa' : '#666' }]}>
+                      Включить тёмный режим интерфейса
+                    </Text>
                   </View>
                 </View>
                 <TouchableOpacity
-                  style={[appStyles.toggle, flash === 'on' && appStyles.toggleActive]}
-                  onPress={() => setFlash(flash === 'off' ? 'on' : 'off')}
+                  style={[styles.toggle, useDarkTheme && styles.toggleActive]}
+                  onPress={toggleTheme}
                 >
-                  <View style={[appStyles.toggleCircle, flash === 'on' && appStyles.toggleCircleActive]} />
+                  <View style={[styles.toggleCircle, useDarkTheme && styles.toggleCircleActive]} />
                 </TouchableOpacity>
               </View>
               
-              <View style={appStyles.settingItem}>
-                <View style={appStyles.settingInfo}>
-                  <Ionicons name="save" size={24} color="#007AFF" style={appStyles.settingIcon} />
+              <View style={styles.settingItem}>
+                <View style={styles.settingInfo}>
+                  <Ionicons name="save" size={24} color={isDarkMode ? "#007AFF" : "#0056CC"} style={styles.settingIcon} />
                   <View>
-                    <Text style={appStyles.settingTitle}>Автосохранение</Text>
-                    <Text style={appStyles.settingDescription}>Автоматически сохранять в историю</Text>
+                    <Text style={[styles.settingTitle, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
+                      Автосохранение
+                    </Text>
+                    <Text style={[styles.settingDescription, { color: isDarkMode ? '#aaa' : '#666' }]}>
+                      Автоматически сохранять в историю
+                    </Text>
                   </View>
                 </View>
                 <TouchableOpacity
-                  style={[appStyles.toggle, autoSave && appStyles.toggleActive]}
+                  style={[styles.toggle, autoSave && styles.toggleActive]}
                   onPress={() => setAutoSave(!autoSave)}
                 >
-                  <View style={[appStyles.toggleCircle, autoSave && appStyles.toggleCircleActive]} />
+                  <View style={[styles.toggleCircle, autoSave && styles.toggleCircleActive]} />
                 </TouchableOpacity>
               </View>
             </ScrollView>
             
-            <View style={appStyles.modalButtons}>
+            <View style={styles.modalButtons}>
               <TouchableOpacity 
-                style={[appStyles.modalButton, appStyles.closeButton]}
+                style={[styles.modalButton, { backgroundColor: isDarkMode ? '#007AFF' : '#0056CC' }]}
                 onPress={() => setSettingsVisible(false)}
               >
-                <Text style={appStyles.closeButtonText}>Закрыть</Text>
+                <Text style={styles.closeButtonText}>Закрыть</Text>
               </TouchableOpacity>
             </View>
           </View>
