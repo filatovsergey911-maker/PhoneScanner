@@ -24,7 +24,8 @@
       "package": "com.anonymous.phonescanner",
       "permissions": [
         "CAMERA",
-        "READ_EXTERNAL_STORAGE"
+        "READ_EXTERNAL_STORAGE",
+        "VIBRATE" // Добавьте это разрешение
       ]
     },
     "web": {
@@ -33,7 +34,6 @@
     "plugins": [
       "expo-camera",
       "expo-image-picker"
-      // Убрали expo-linking отсюда
     ],
     "extra": {
       "eas": {

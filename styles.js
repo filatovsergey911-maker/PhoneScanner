@@ -94,8 +94,8 @@ export const styles = StyleSheet.create({
     paddingVertical: 20, // отступ сверху и снизу
   },
   scanFrame: {
-    width: screenWidth * 0.60,
-    height: screenHeight * 0.40,
+    width: screenWidth * 0.70,
+    height: screenHeight * 0.45,
     position: 'relative',
     backgroundColor: 'transparent',
     borderWidth: 0,
@@ -133,7 +133,7 @@ export const styles = StyleSheet.create({
   },
   scanHint: {
     marginTop: 0, // ИЗМЕНЕНО: убран верхний отступ
-    marginBottom: 80, // ДОБАВЛЕНО: большой отступ снизу
+    marginBottom: 0, // ДОБАВЛЕНО: большой отступ снизу
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 20,
@@ -186,15 +186,15 @@ export const styles = StyleSheet.create({
   scanButtonContainer: {
     flex: 1,
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 30,
   },
   scanButton: {
     paddingVertical: 14,
-    paddingHorizontal: 25,
+    paddingHorizontal: 20,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 220,
+    minWidth: 180,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,

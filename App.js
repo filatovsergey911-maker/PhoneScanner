@@ -10,8 +10,9 @@ import {
   Linking,
   Animated,
   StyleSheet,
-  Modal,
-  Dimensions
+  Dimensions,
+  Vibration,
+  Platform
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -21,167 +22,12 @@ import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { APP_DATABASE } from './appData';
 import { styles } from './styles';
 import { getHistory, saveToHistory, clearHistory } from './historyService';
+import { ResultsModal } from './components/ResultsModal';
+import { HistoryModal } from './components/HistoryModal';
+import { SettingsModal } from './components/SettingsModal';
+import ScanAnimation from './ScanAnimation'; // Импорт отдельного компонента
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
-
-// Компонент анимации сканирования
-const ScanAnimation = ({ isActive, isDarkMode }) => {
-  const scanAnim = useRef(new Animated.Value(0)).current;
-  
-  useEffect(() => {
-    let animation;
-    
-    if (isActive) {
-      animation = Animated.loop(
-        Animated.sequence([
-          Animated.timing(scanAnim, {
-            toValue: 1,
-            duration: 2000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(scanAnim, {
-            toValue: 0,
-            duration: 0,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-      
-      animation.start();
-    } else {
-      scanAnim.setValue(0);
-    }
-    
-    return () => {
-      if (animation) {
-        animation.stop();
-      }
-    };
-  }, [isActive]);
-
-  if (!isActive) return null;
-
-  const translateY = scanAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, screenHeight * 0.32 * 0.9],
-  });
-
-  return (
-    <View style={localStyles.animationContainer}>
-      <Animated.View
-        style={[
-          localStyles.scanLine,
-          {
-            transform: [{ translateY }],
-            backgroundColor: isDarkMode ? '#007AFF' : '#0056CC',
-          },
-        ]}
-      />
-      
-      <Animated.View
-        style={[
-          localStyles.glowEffect,
-          {
-            transform: [{ translateY }],
-            backgroundColor: isDarkMode ? '#4CD964' : '#34C759',
-            opacity: scanAnim.interpolate({
-              inputRange: [0, 0.5, 1],
-              outputRange: [0.1, 0.8, 0.1],
-            }),
-          },
-        ]}
-      />
-      
-      <Animated.View
-        style={[
-          localStyles.secondaryLine,
-          {
-            transform: [{ translateY: Animated.add(translateY, 15) }],
-            backgroundColor: isDarkMode ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.4)',
-            opacity: scanAnim.interpolate({
-              inputRange: [0, 0.3, 0.7, 1],
-              outputRange: [0, 0.5, 0.5, 0],
-            }),
-          },
-        ]}
-      />
-    </View>
-  );
-};
-
-const localStyles = StyleSheet.create({
-  animationContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: screenHeight * 0.32 * 0.9,
-  },
-  scanLine: {
-    position: 'absolute',
-    left: 10,
-    right: 10,
-    height: 4,
-    borderRadius: 2,
-    shadowColor: '#007AFF',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 10,
-    elevation: 15,
-    zIndex: 10,
-  },
-  glowEffect: {
-    position: 'absolute',
-    left: 5,
-    right: 5,
-    height: 10,
-    borderRadius: 5,
-    zIndex: 9,
-  },
-  secondaryLine: {
-    position: 'absolute',
-    left: 20,
-    right: 20,
-    height: 2,
-    borderRadius: 1,
-    zIndex: 8,
-  },
-  // Новые стили для статуса внутри камеры
-  scanStatusOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-    zIndex: 20,
-  },
-  scanStatusOverlayText: {
-    color: 'white',
-    fontSize: 14,
-    fontFamily: 'System',
-    fontWeight: '500',
-    marginTop: 5,
-  },
-  detectedCountOverlay: {
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: 12,
-    fontFamily: 'System',
-    marginTop: 2,
-  },
-  scanHintAbsolute: {
-  position: 'absolute',
-  bottom: -55, // Отступ от низа камеры
-  left: 0,
-  right: 0,
-  alignItems: 'center',
-  zIndex: 15,
-},
-});
 
 // Основной компонент приложения
 export default function App() {
@@ -198,8 +44,6 @@ export default function App() {
   
   const cameraRef = useRef(null);
   const scanInterval = useRef(null);
-  const isLongPress = useRef(false);
-  const longPressTimeout = useRef(null);
 
   const systemColorScheme = useColorScheme();
   const isDarkMode = useDarkTheme || systemColorScheme === 'dark';
@@ -207,15 +51,33 @@ export default function App() {
   useEffect(() => {
     loadHistory();
     loadThemePreference();
+    
     return () => {
-      if (longPressTimeout.current) {
-        clearTimeout(longPressTimeout.current);
-      }
       if (scanInterval.current) {
         clearInterval(scanInterval.current);
       }
     };
   }, []);
+
+  // Функция вибрации при обнаружении приложения
+  const vibrateOnDetection = () => {
+    if (Platform.OS === 'ios') {
+      // Для iOS
+      Vibration.vibrate(100);
+    } else {
+      // Для Android - короткая вибрация
+      Vibration.vibrate(50);
+    }
+  };
+
+  // Функция вибрации при старте/стопе сканирования
+  const vibrateOnScanToggle = () => {
+    if (Platform.OS === 'ios') {
+      Vibration.vibrate(200);
+    } else {
+      Vibration.vibrate(100);
+    }
+  };
 
   const loadHistory = async () => {
     const history = await getHistory();
@@ -251,7 +113,9 @@ export default function App() {
     if (!isScanning && isCameraReady) {
       setIsScanning(true);
       setDetectedApps([]);
-      isLongPress.current = false;
+      
+      // Вибрация при старте сканирования
+      vibrateOnScanToggle();
       
       let appsFound = [];
       let counter = 0;
@@ -262,6 +126,10 @@ export default function App() {
           if (!appsFound.find(app => app.id === newApp.id)) {
             appsFound.push(newApp);
             setDetectedApps([...appsFound]);
+            
+            // Вибрация при обнаружении каждого приложения
+            vibrateOnDetection();
+            
             counter++;
           }
         } else {
@@ -279,59 +147,11 @@ export default function App() {
         scanInterval.current = null;
       }
       
+      // Вибрация при остановке сканирования
+      vibrateOnScanToggle();
+      
       if (detectedApps.length > 0) {
         saveScanResult();
-      }
-    }
-  };
-
-  const takePhotoAndAnalyze = async () => {
-    if (!cameraRef.current || !isCameraReady) {
-      console.log('Камера не готова');
-      return;
-    }
-
-    try {
-      setIsScanning(true);
-      isLongPress.current = true;
-      
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.7,
-        base64: false,
-        skipProcessing: true,
-      });
-      
-      setTimeout(() => {
-        const apps = simulateAppRecognition();
-        setDetectedApps(apps);
-        setIsScanning(false);
-        isLongPress.current = false;
-        setResultsVisible(true);
-        saveScanResult();
-      }, 1500);
-      
-    } catch (error) {
-      console.log('Ошибка при съёмке:', error);
-      setIsScanning(false);
-      isLongPress.current = false;
-    }
-  };
-
-  const handlePressIn = () => {
-    if (!isScanning && isCameraReady) {
-      longPressTimeout.current = setTimeout(() => {
-        takePhotoAndAnalyze();
-      }, 800);
-    }
-  };
-
-  const handlePressOut = () => {
-    if (longPressTimeout.current) {
-      clearTimeout(longPressTimeout.current);
-      longPressTimeout.current = null;
-      
-      if (!isScanning && !isLongPress.current && isCameraReady) {
-        startScanning();
       }
     }
   };
@@ -339,6 +159,8 @@ export default function App() {
   const handlePress = () => {
     if (isScanning) {
       stopScanning();
+    } else if (isCameraReady) {
+      startScanning();
     }
   };
 
@@ -353,11 +175,17 @@ export default function App() {
       if (!result.canceled) {
         setIsScanning(true);
         
+        // Вибрация при выборе изображения
+        vibrateOnScanToggle();
+        
         setTimeout(() => {
           const apps = simulateAppRecognition();
           setDetectedApps(apps);
           setIsScanning(false);
           saveScanResult();
+          
+          // Вибрация при завершении анализа
+          vibrateOnScanToggle();
         }, 1500);
       }
     } catch (error) {
@@ -486,7 +314,7 @@ export default function App() {
                 <View style={localStyles.scanStatusOverlay}>
                   <ActivityIndicator size="small" color="white" />
                   <Text style={localStyles.scanStatusOverlayText}>
-                    {isLongPress.current ? 'Анализ фото...' : 'Сканирование...'}
+                    Сканирование...
                   </Text>
                   {detectedApps.length > 0 && (
                     <Text style={localStyles.detectedCountOverlay}>
@@ -518,21 +346,22 @@ export default function App() {
                   { borderColor: isDarkMode ? '#007AFF' : '#0056CC' }
                 ]} />
                 
-                <ScanAnimation isActive={isScanning} isDarkMode={isDarkMode} />
+                {/* Анимация сканирования с передачей высоты */}
+                <ScanAnimation 
+                  isActive={isScanning} 
+                  isDarkMode={isDarkMode}
+                  frameHeight={screenHeight * 0.44} // ВАЖНО: передаем высоту
+                />
               </View>
               
-              <View style={localStyles.scanHintAbsolute}>
-                <Text style={[styles.scanHint, { 
-                  color: 'white',
-                  backgroundColor: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.6)'
-                }]}>
-                  Наведите на экран другого телефона
-                </Text>
-              </View>
+              <Text style={[styles.scanHint, { 
+                color: 'white',
+                backgroundColor: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.6)'
+              }]}>
+                Наведите на экран другого телефона
+              </Text>
             </View>
           </View>
-
-          {/* УДАЛЕН блок scanStatus здесь - теперь он внутри cameraOverlay */}
 
           <View style={styles.controls}>
             <TouchableOpacity 
@@ -550,20 +379,13 @@ export default function App() {
                   isScanning && { backgroundColor: isDarkMode ? '#ff3b30' : '#d70015' },
                   !isCameraReady && styles.disabledButton
                 ]}
-                onPressIn={handlePressIn}
-                onPressOut={handlePressOut}
                 onPress={handlePress}
                 activeOpacity={0.7}
                 disabled={!isCameraReady}
               >
                 <View style={styles.scanButtonContent}>
                   <Text style={styles.scanButtonText}>
-                    {isScanning ? 'ОСТАНОВИТЬ СКАНИРОВАНИЕ' : 'НАЧАТЬ СКАНИРОВАНИЕ'}
-                  </Text>
-                  <Text style={[styles.scanButtonHint, { 
-                    color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.8)' 
-                  }]}>
-                    (удерживайте для фото)
+                    {isScanning ? 'ОСТАНОВИТЬ' : 'НАЧАТЬ'}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -584,7 +406,7 @@ export default function App() {
                   <Text style={[styles.historyButtonText, { 
                     color: isDarkMode ? "#007AFF" : "#0056CC" 
                   }]}>
-                    История сканирований ({scanHistory.length})
+                    История ({scanHistory.length})
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -593,255 +415,69 @@ export default function App() {
         </View>
       </View>
 
-      {/* Модальное окно результатов */}
-      <Modal
-        animationType="slide"
-        transparent={true}
+      {/* Модальные окна через компоненты с настоящими Modal */}
+      <ResultsModal
         visible={resultsVisible}
-        onRequestClose={() => {
+        onClose={() => {
           setResultsVisible(false);
-          isLongPress.current = false;
         }}
-      >
-        <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff' }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
-                Результаты сканирования
-              </Text>
-              <TouchableOpacity onPress={() => {
-                setResultsVisible(false);
-                isLongPress.current = false;
-              }}>
-                <Ionicons name="close" size={24} color={isDarkMode ? "#666" : "#8e8e93"} />
-              </TouchableOpacity>
-            </View>
-            
-            <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
-              <View style={[styles.resultsSummary, { backgroundColor: isDarkMode ? '#2a2a2a' : '#f2f2f7' }]}>
-                <View style={styles.summaryText}>
-                  <Text style={[styles.summaryLabel, { color: isDarkMode ? '#aaa' : '#666' }]}>
-                    Найдено приложений:
-                  </Text>
-                  <Text style={[styles.summaryValue, { color: isDarkMode ? '#4CD964' : '#34C759' }]}>
-                    {detectedApps.length}
-                  </Text>
-                </View>
-              </View>
-              
-              <Text style={[styles.sectionTitle, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
-                Обнаруженные приложения:
-              </Text>
-              <View style={styles.appsList}>
-                {detectedApps.map((app, index) => (
-                  <TouchableOpacity 
-                    key={index} 
-                    style={[styles.appListItem, { backgroundColor: isDarkMode ? '#2a2a2a' : '#f2f2f7' }]}
-                    onPress={() => openInStore(app)}
-                  >
-                    <View style={[
-                      styles.appIconContainer, 
-                      { backgroundColor: isDarkMode ? '#333' : '#e5e5e7' }
-                    ]}>
-                      <FontAwesome5 name={app.icon} size={24} color={isDarkMode ? "#007AFF" : "#0056CC"} />
-                    </View>
-                    <View style={styles.appInfo}>
-                      <Text style={[styles.appName, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
-                        {app.name}
-                      </Text>
-                      <Text style={[styles.appType, { color: isDarkMode ? '#aaa' : '#666' }]}>
-                        {app.type}
-                      </Text>
-                    </View>
-                    <TouchableOpacity 
-                      style={[styles.downloadButton, { backgroundColor: isDarkMode ? '#007AFF' : '#0056CC' }]}
-                      onPress={() => openInStore(app)}
-                    >
-                      <Text style={styles.downloadButtonText}>Скачать</Text>
-                    </TouchableOpacity>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
-            
-            <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={[styles.modalButton, { backgroundColor: isDarkMode ? '#007AFF' : '#0056CC' }]}
-                onPress={() => {
-                  setResultsVisible(false);
-                  isLongPress.current = false;
-                }}
-              >
-                <Text style={styles.closeButtonText}>Закрыть</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        detectedApps={detectedApps}
+        isDarkMode={isDarkMode}
+        openInStore={openInStore}
+      />
 
-      {/* Модальное окно истории */}
-      <Modal
-        animationType="slide"
-        transparent={true}
+      <HistoryModal
         visible={historyVisible}
-        onRequestClose={() => setHistoryVisible(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={[styles.historyModalContent, { backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff' }]}>
-            <Text style={[styles.historyTitle, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
-              История сканирований
-            </Text>
-            
-            {scanHistory.length === 0 ? (
-              <View style={styles.historyEmpty}>
-                <Ionicons name="time-outline" size={60} color={isDarkMode ? "#666" : "#8e8e93"} />
-                <Text style={[styles.historyEmptyText, { color: isDarkMode ? '#aaa' : '#666' }]}>
-                  История пуста
-                </Text>
-              </View>
-            ) : (
-              <ScrollView style={styles.modalScroll}>
-                {scanHistory.map((scan) => (
-                  <View key={scan.id} style={[styles.historyItem, { backgroundColor: isDarkMode ? '#2a2a2a' : '#f2f2f7' }]}>
-                    <View style={styles.historyItemHeader}>
-                      <Text style={[styles.historyDeviceName, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
-                        {scan.deviceName}
-                      </Text>
-                      <Text style={[styles.historyDate, { color: isDarkMode ? '#aaa' : '#666' }]}>
-                        {scan.date}
-                      </Text>
-                    </View>
-                    
-                    <Text style={[styles.detectedCount, { color: isDarkMode ? '#aaa' : '#666' }]}>
-                      Найдено приложений: {scan.appsCount}
-                    </Text>
-                    
-                    <View style={styles.historyApps}>
-                      {scan.apps.slice(0, 5).map((app, index) => (
-                        <View key={index} style={[styles.historyAppBadge, { backgroundColor: isDarkMode ? '#333' : '#e5e5e7' }]}>
-                          <FontAwesome5 
-                            name={app.icon} 
-                            size={12} 
-                            color={isDarkMode ? "#007AFF" : "#0056CC"} 
-                            style={styles.historyAppIcon}
-                          />
-                          <Text style={[styles.historyAppName, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
-                            {app.name}
-                          </Text>
-                        </View>
-                      ))}
-                      {scan.apps.length > 5 && (
-                        <View style={[styles.historyAppBadge, { backgroundColor: isDarkMode ? '#333' : '#e5e5e7' }]}>
-                          <Text style={[styles.historyAppName, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
-                            +{scan.apps.length - 5}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                    
-                    <TouchableOpacity 
-                      style={[styles.modalButton, { backgroundColor: isDarkMode ? '#007AFF' : '#0056CC', marginTop: 10 }]}
-                      onPress={() => {
-                        setDetectedApps([...scan.apps]);
-                        setHistoryVisible(false);
-                        setResultsVisible(true);
-                      }}
-                    >
-                      <Text style={styles.closeButtonText}>Посмотреть</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-                
-                <TouchableOpacity 
-                  style={[styles.clearHistoryButton, { backgroundColor: isDarkMode ? '#ff3b30' : '#d70015' }]}
-                  onPress={handleClearHistory}
-                >
-                  <Text style={styles.clearHistoryText}>Очистить историю</Text>
-                </TouchableOpacity>
-              </ScrollView>
-            )}
-            
-            <TouchableOpacity 
-              style={[styles.modalButton, { backgroundColor: isDarkMode ? '#007AFF' : '#0056CC', marginTop: 20 }]}
-              onPress={() => setHistoryVisible(false)}
-            >
-              <Text style={styles.closeButtonText}>Закрыть</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setHistoryVisible(false)}
+        scanHistory={scanHistory}
+        isDarkMode={isDarkMode}
+        onClearHistory={handleClearHistory}
+        onViewScanResult={(apps) => {
+          setDetectedApps([...apps]);
+          setHistoryVisible(false);
+          setResultsVisible(true);
+        }}
+      />
 
-      {/* Модальное окно настроек */}
-      <Modal
-        animationType="slide"
-        transparent={true}
+      <SettingsModal
         visible={settingsVisible}
-        onRequestClose={() => setSettingsVisible(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff' }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
-                Настройки
-              </Text>
-              <TouchableOpacity onPress={() => setSettingsVisible(false)}>
-                <Ionicons name="close" size={24} color={isDarkMode ? "#666" : "#8e8e93"} />
-              </TouchableOpacity>
-            </View>
-            
-            <ScrollView style={styles.modalScroll}>
-              <View style={styles.settingItem}>
-                <View style={styles.settingInfo}>
-                  <Ionicons name="moon" size={24} color={isDarkMode ? "#007AFF" : "#0056CC"} style={styles.settingIcon} />
-                  <View>
-                    <Text style={[styles.settingTitle, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
-                      Тёмная тема
-                    </Text>
-                    <Text style={[styles.settingDescription, { color: isDarkMode ? '#aaa' : '#666' }]}>
-                      Включить тёмный режим интерфейса
-                    </Text>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  style={[styles.toggle, useDarkTheme && styles.toggleActive]}
-                  onPress={toggleTheme}
-                >
-                  <View style={[styles.toggleCircle, useDarkTheme && styles.toggleCircleActive]} />
-                </TouchableOpacity>
-              </View>
-              
-              <View style={styles.settingItem}>
-                <View style={styles.settingInfo}>
-                  <Ionicons name="save" size={24} color={isDarkMode ? "#007AFF" : "#0056CC"} style={styles.settingIcon} />
-                  <View>
-                    <Text style={[styles.settingTitle, { color: isDarkMode ? 'white' : '#1d1d1f' }]}>
-                      Автосохранение
-                    </Text>
-                    <Text style={[styles.settingDescription, { color: isDarkMode ? '#aaa' : '#666' }]}>
-                      Автоматически сохранять в историю
-                    </Text>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  style={[styles.toggle, autoSave && styles.toggleActive]}
-                  onPress={() => setAutoSave(!autoSave)}
-                >
-                  <View style={[styles.toggleCircle, autoSave && styles.toggleCircleActive]} />
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-            
-            <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={[styles.modalButton, { backgroundColor: isDarkMode ? '#007AFF' : '#0056CC' }]}
-                onPress={() => setSettingsVisible(false)}
-              >
-                <Text style={styles.closeButtonText}>Закрыть</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setSettingsVisible(false)}
+        isDarkMode={isDarkMode}
+        useDarkTheme={useDarkTheme}
+        autoSave={autoSave}
+        onToggleTheme={toggleTheme}
+        onToggleAutoSave={() => setAutoSave(!autoSave)}
+      />
     </View>
   );
 }
+
+// Локальные стили для статуса сканирования
+const localStyles = StyleSheet.create({
+  scanStatusOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    zIndex: 20,
+  },
+  scanStatusOverlayText: {
+    color: 'white',
+    fontSize: 14,
+    fontFamily: 'System',
+    fontWeight: '500',
+    marginTop: 5,
+  },
+  detectedCountOverlay: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 12,
+    fontFamily: 'System',
+    marginTop: 2,
+  },
+});
